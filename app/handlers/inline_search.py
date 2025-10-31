@@ -98,14 +98,4 @@ async def inline_search(query: types.InlineQuery):
         )
         results.append(result)
 
-        # Save search log
-        await history_collection.insert_one({
-            "user_id": str(query.from_user.id),
-            "username": query.from_user.username,
-            "query": text,
-            "hero_id": hero_id,
-            "hero_name": f"{hero['name']['first']} {hero['name']['last']}",
-            "searched_at": query.date.isoformat()
-        })
-
     await query.answer(results, cache_time=5, is_personal=True)
