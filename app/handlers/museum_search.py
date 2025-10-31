@@ -7,10 +7,13 @@ from loguru import logger
 from urllib.parse import quote, unquote
 from uuid import uuid4
 import re, html
-
-from app.db.mongo import heroes_collection
+from datetime import datetime, timezone
+import os
+from app.db.mongo import heroes_collection, history_collection
 from app.utils.cache import get_cached_hero, set_cached_hero
 from app.db.redis_db import cache
+from app.db.mongo_stats import increment_user_search
+from app.utils.util import compose_hero_image
 
 router = Router()
 
@@ -180,6 +183,8 @@ async def museum_searching(message: types.Message, state: FSMContext):
     if not heroes:
         await message.answer("❌ Հերոս չի գտնվել։ Փորձեք այլ անուն։")
         return
+    
+    increment_user_search(message.from_user, query)
 
     cache_key = f"search:{uuid4().hex[:8]}"
     set_cached_hero(cache_key, [str(h["_id"]) for h in heroes])
@@ -187,7 +192,25 @@ async def museum_searching(message: types.Message, state: FSMContext):
     hero = heroes[0]
     caption = build_caption(hero, 0, total)
     kb = build_keyboard("search", 0, total, cache_key)
-    await message.answer_photo(hero["img_url"], caption=caption, parse_mode="HTML", reply_markup=kb)
+    img_path = await compose_hero_image(hero["img_url"])
+    image = await message.answer_photo(hero["img_url"], caption=caption, parse_mode="HTML", reply_markup=kb)
+    print("Exists:", os.path.exists(img_path))
+    print("Path:", img_path)
+    media = InputMediaPhoto(
+        media=types.FSInputFile(img_path),
+        caption=caption,
+        parse_mode="HTML"
+    )
+    await image.edit_media(media, reply_markup=kb)
+    await history_collection.insert_one({
+        "user_id": str(message.from_user.id),
+        "username": message.from_user.username,
+        "query": query,
+        "hero_id": str(hero["_id"]),
+        "hero_name": f"{hero['name']['first']} {hero['name']['last']}",
+        "searched_at": message.date.isoformat()
+    })
+    cache.set("stats:last_search_time", datetime.now(timezone.utc).isoformat())
     await state.clear()
 
 
@@ -208,7 +231,14 @@ async def show_all_heroes(cb: types.CallbackQuery):
     hero = heroes[0]
     caption = build_caption(hero, 0, total)
     kb = build_keyboard("all", 0, total, cache_key)
-    await cb.message.answer_photo(hero["img_url"], caption=caption, parse_mode="HTML", reply_markup=kb)
+    img_path = await compose_hero_image(hero["img_url"])
+    image = await cb.message.answer_photo(hero["img_url"], caption=caption, parse_mode="HTML", reply_markup=kb)
+    media = InputMediaPhoto(
+        media=types.FSInputFile(img_path),
+        caption=caption,
+        parse_mode="HTML"
+    )
+    await image.edit_media(media, reply_markup=kb)
     await cb.answer()
 
 
@@ -265,7 +295,14 @@ async def filter_by_war(cb: types.CallbackQuery):
     hero = heroes[0]
     caption = build_caption(hero, 0, total)
     kb = build_keyboard("war", 0, total, cache_key2)
-    await cb.message.answer_photo(hero["img_url"], caption=caption, parse_mode="HTML", reply_markup=kb)
+    img_path = await compose_hero_image(hero["img_url"])
+    image = await cb.message.answer_photo(hero["img_url"], caption=caption, parse_mode="HTML", reply_markup=kb)
+    media = InputMediaPhoto(
+        media=types.FSInputFile(img_path),
+        caption=caption,
+        parse_mode="HTML"
+    )
+    await image.edit_media(media, reply_markup=kb)
     await cb.answer()
 
 
@@ -294,7 +331,13 @@ async def paginate_museum(cb: types.CallbackQuery):
     kb = build_keyboard(mode, index, total, key)
 
     try:
+        img_path = await compose_hero_image(hero["img_url"])
         media = InputMediaPhoto(media=hero["img_url"], caption=caption, parse_mode="HTML")
+        media = InputMediaPhoto(
+            media=types.FSInputFile(img_path),
+            caption=caption,
+            parse_mode="HTML"
+        )
         await cb.message.edit_media(media=media, reply_markup=kb)
     except Exception:
         await cb.message.edit_caption(caption=caption, parse_mode="HTML", reply_markup=kb)

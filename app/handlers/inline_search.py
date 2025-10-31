@@ -1,7 +1,9 @@
 from aiogram import Router, types
 from bson.regex import Regex
-from app.db.mongo import heroes_collection
+from app.db.mongo import heroes_collection, history_collection
+import os
 import re, html
+from app.utils.util import compose_hero_image
 
 router = Router()
 MAX_INLINE_RESULTS = 50
@@ -39,16 +41,14 @@ def make_caption(hero):
 # ---------------------
 @router.inline_query()
 async def inline_search(query: types.InlineQuery):
-    text = query.query.strip()
+    text = query.query.strip().replace("և", "եվ")
     if not text:
         await query.answer([], switch_pm_text="Գրիր հերոսի անունը", switch_pm_parameter="start")
         return
 
-    # Split user query into parts
+    # Build MongoDB query
     parts = text.split(maxsplit=1)
-    regex_text = re.escape(text)  # escape spaces and regex chars
-
-    # Build flexible Mongo filter
+    regex_text = re.escape(text)
     conditions = [
         {"name.first": Regex(text, "i")},
         {"name.last": Regex(text, "i")},
@@ -61,48 +61,51 @@ async def inline_search(query: types.InlineQuery):
 
     if len(parts) == 2:
         first, last = parts
-        conditions.append({
-            "$and": [
-                {"name.first": Regex(first, "i")},
-                {"name.last": Regex(last, "i")}
-            ]
-        })
-        conditions.append({
-            "$and": [
-                {"name.first": Regex(last, "i")},
-                {"name.last": Regex(first, "i")}
-            ]
-        })
+        conditions.extend([
+            {"$and": [{"name.first": Regex(first, "i")}, {"name.last": Regex(last, "i")}]},
+            {"$and": [{"name.first": Regex(last, "i")}, {"name.last": Regex(first, "i")}]}
+        ])
 
-    query_filter = {"$or": conditions}
-
-    heroes = [h async for h in heroes_collection.find(query_filter).limit(MAX_INLINE_RESULTS)]
-
+    heroes = [h async for h in heroes_collection.find({"$or": conditions}).limit(MAX_INLINE_RESULTS)]
     if not heroes:
         await query.answer([], switch_pm_text="Հերոս չի գտնվել", switch_pm_parameter="notfound")
         return
 
     results = []
+
     for hero in heroes:
         hero_id = str(hero["_id"])
-        title = f"{hero['name']['first']} {hero['name']['last']}"
-        description = hero.get("war", "Հայ հերոս")
-        photo = hero.get("img_url") or "https://upload.wikimedia.org/wikipedia/commons/2/2f/Flag_of_Armenia.svg"
         caption = make_caption(hero)
 
-        result = types.InlineQueryResultArticle(
+        # ✅ Compose hero image (with flag + logo)
+        img_path = await compose_hero_image(hero["img_url"])
+        print("yo")
+        if not os.path.exists(img_path):
+            print("not ex")
+            # fallback to Armenian flag if something goes wrong
+            img_path = "temp/fallback_flag.png"
+
+        # ✅ Send inline photo with composed image
+        result = types.InlineQueryResultPhoto(
             id=hero_id,
-            title=title,
-            description=description,
-            thumbnail_url=photo,
-            input_message_content=types.InputTextMessageContent(
-                message_text=caption,
-                parse_mode="HTML",
-            ),
+            photo_url=f"file://{os.path.abspath(img_path)}",
+            thumbnail_url=f"file://{os.path.abspath(img_path)}",
+            caption=caption,
+            parse_mode="HTML",
             reply_markup=types.InlineKeyboardMarkup(inline_keyboard=[
-                [types.InlineKeyboardButton(text="🏛️ Դիտել թանգարանում", url=f"https://t.me/erablurbot?start={hero["_id"]}")]
+                [types.InlineKeyboardButton(text="🏛️ Դիտել թանգարանում", url=f"https://t.me/erablurbot?start={hero_id}")]
             ])
         )
         results.append(result)
+
+        # Save search log
+        await history_collection.insert_one({
+            "user_id": str(query.from_user.id),
+            "username": query.from_user.username,
+            "query": text,
+            "hero_id": hero_id,
+            "hero_name": f"{hero['name']['first']} {hero['name']['last']}",
+            "searched_at": query.date.isoformat()
+        })
 
     await query.answer(results, cache_time=5, is_personal=True)

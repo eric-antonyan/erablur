@@ -1,8 +1,8 @@
 import asyncio
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
-from app.config.settings import BOT_TOKEN
-from app.handlers import start, inline_search, profile, about, museum_search, channel_manage
+from app.config.settings import BOT_TOKEN, TEST_BOT_TOKEN
+from app.handlers import start, inline_search, profile, about, museum_search, channel_manage, admin
 from loguru import logger
 
 
@@ -21,6 +21,7 @@ async def main():
     dp.include_router(museum_search.router)
     dp.include_router(channel_manage.router)
     dp.include_router(inline_search.router)
+    dp.include_router(admin.router)
 
     await dp.start_polling(bot)
 

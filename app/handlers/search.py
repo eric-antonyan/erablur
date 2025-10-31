@@ -12,6 +12,8 @@ from app.db.redis_db import cache
 from app.utils.cache import get_cached_hero, set_cached_hero
 import re
 import html
+from app.db.mongo_stats import increment_user_search
+from app.utils.util import compose_hero_image
 
 router = Router()
 
@@ -127,6 +129,8 @@ def build_keyboard(query, index, total, more_url):
 async def search_hero(message: types.Message):
     query = message.text.strip()
     logger.info(f"🔍 Searching hero for query: {query}")
+    increment_user_search(message.from_user, query)
+    print("r")
 
     # Split query into words for flexible searching
     parts = query.split()
@@ -187,16 +191,15 @@ async def search_hero(message: types.Message):
         }
     )
 
-    # --- 📊 Update statistics ---
     cache.incr("stats:searches:total")
     cache.sadd("stats:users", user_id)
     cache.sadd("stats:heroes", hero["name"]["last"])
     cache.set("stats:last_search_time", message.date.isoformat())
 
-    # --- Send result ---
+    img_path = await compose_hero_image(hero["img_url"])
     try:
         await message.answer_photo(
-            hero["img_url"],
+            types.FSInputFile(img_path),
             caption=caption,
             parse_mode="HTML",
             reply_markup=kb,
@@ -220,7 +223,7 @@ async def paginate_hero(cb: types.CallbackQuery):
         await cb.answer("Սխալ տվյալ։", show_alert=True)
         return
 
-    # --- Search again using the same filters ---
+    
     parts = query.split()
     if len(parts) >= 2:
         first, last = parts[0], parts[1]
@@ -255,8 +258,9 @@ async def paginate_hero(cb: types.CallbackQuery):
     kb = build_keyboard(query, index, total, hero.get("bio_link", ""))
 
     try:
+        img_path = await compose_hero_image(hero["img_url"])
         media = InputMediaPhoto(
-            media=hero["img_url"],
+            media=types.FSInputFile(img_path),
             caption=caption,
             parse_mode="HTML",
         )
