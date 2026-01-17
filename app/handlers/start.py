@@ -1,80 +1,85 @@
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+)
 from bson import ObjectId
 from urllib.parse import unquote
 from loguru import logger
-import re, os
+import re
+import os
 
 from app.db.redis_db import cache
 from app.db.mongo import users_collection, heroes_collection
 from app.utils.cache import set_cached_hero
 from app.handlers.museum_search import build_caption, build_keyboard
-from app.utils.util import compose_hero_image  # 🧩 Image composer with flag+logo
+from app.utils.util import compose_hero_image
 
 router = Router()
 
 
-# --- Fix malformed HTML ---
 def fix_unclosed_tags(text: str) -> str:
     text = re.sub(r"<[^>]*$", "", text)
-    for tag in ["b", "i"]:
+    for tag in ("b", "i"):
         opens, closes = text.count(f"<{tag}>"), text.count(f"</{tag}>")
         if opens > closes:
             text += f"</{tag}>" * (opens - closes)
     return text
 
 
-# -----------------------------
-# /start handler (with deep links)
-# -----------------------------
 @router.message(CommandStart())
 async def start_cmd(message: types.Message):
     user_id = str(message.from_user.id)
     username = message.from_user.username or "unknown"
     first_name = message.from_user.first_name or ""
     last_name = message.from_user.last_name or ""
-    full_name = f"{first_name} {last_name}".strip()
 
-    # --- Redis fast cache ---
+    # --- Redis fast cache (async!) ---
     user_key = f"user:{user_id}"
-    cache.hset(user_key, mapping={
-        "id": user_id,
-        "username": username,
-        "first_name": first_name,
-        "last_name": last_name,
-    })
-    cache.sadd("users:set", user_id)
-
-    # --- Mongo persistent storage ---
-    existing = await users_collection.find_one({"id": user_id})
-    if not existing:
-        await users_collection.insert_one({
+    await cache.hset(
+        user_key,
+        mapping={
             "id": user_id,
             "username": username,
             "first_name": first_name,
             "last_name": last_name,
-            "joined_at": message.date,
-        })
+        },
+    )
+    await cache.sadd("users:set", user_id)
 
-    # --- Build main menu keyboard ---
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🏛️ Թանգարան", callback_data="museum"),
-            InlineKeyboardButton(text="⚔️ Որոնել հերոս", switch_inline_query_current_chat="")
-        ],
-        [
-            InlineKeyboardButton(text="📈 Իմ պրոֆիլը", callback_data="profile"),
-            InlineKeyboardButton(text="📜 Մեր մասին", callback_data="about")
-        ],
-        [
-            InlineKeyboardButton(text="📡 Իմ ալիքները", callback_data="manage_channels")
+    # --- Mongo persistent storage ---
+    existing = await users_collection.find_one({"id": user_id})
+    if not existing:
+        await users_collection.insert_one(
+            {
+                "id": user_id,
+                "username": username,
+                "first_name": first_name,
+                "last_name": last_name,
+                "joined_at": message.date,
+            }
+        )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🏛️ Թանգարան", callback_data="museum"),
+                InlineKeyboardButton(
+                    text="⚔️ Որոնել հերոս", switch_inline_query_current_chat=""
+                ),
+            ],
+            [
+                InlineKeyboardButton(text="📈 Իմ պրոֆիլը", callback_data="profile"),
+                InlineKeyboardButton(text="📜 Մեր մասին", callback_data="about"),
+            ],
+            [InlineKeyboardButton(text="📡 Իմ ալիքները", callback_data="manage_channels")],
         ]
-    ])
+    )
 
-    # --- Parse /start argument ---
     args = message.text.split(maxsplit=1)
-
     if len(args) == 1:
         await message.answer(
             "🇦🇲 Բարի գալուստ Հայկական հերոսների թանգարան 🕊️\n\n"
@@ -83,11 +88,9 @@ async def start_cmd(message: types.Message):
         )
         return
 
-    # Has deep link argument
     param = args[1].strip()
     decoded = unquote(param)
 
-    # 🧠 Check if it's hero link
     match = re.search(r"[0-9a-f]{24}$", decoded)
     if not match:
         await message.answer(
@@ -105,30 +108,42 @@ async def start_cmd(message: types.Message):
         await wait_msg.edit_text("❌ Այդ հղումով հերոս չի գտնվել։")
         return
 
-    # Prepare pagination context
-    all_heroes = [h async for h in heroes_collection.find()]
-    total = len(all_heroes)
-    current_index = next((i for i, h in enumerate(all_heroes) if str(h["_id"]) == hero_id), 0)
+    # ✅ Better than loading all heroes docs:
+    # Get only ids (still O(N) but much lighter than full docs)
+    hero_ids = await heroes_collection.find({}, {"_id": 1}).to_list(length=None)
+    all_ids = [str(h["_id"]) for h in hero_ids]
+    total = len(all_ids)
+    current_index = all_ids.index(hero_id) if hero_id in all_ids else 0
+
     cache_key = f"hero:{hero_id}"
-    set_cached_hero(cache_key, [str(h["_id"]) for h in all_heroes])
+    set_cached_hero(cache_key, all_ids)
 
     caption = fix_unclosed_tags(build_caption(hero, current_index, total))
     keyboard = build_keyboard("all", current_index, total, cache_key)
 
+    img_path = None
     try:
-        await wait_msg.delete()
+        try:
+            await wait_msg.delete()
+        except Exception:
+            pass
 
-        # ✅ Compose hero image (flag background + logo)
-        img_path = await compose_hero_image(hero["img_url"])
-
-        # Use FSInputFile (Telegram requires InputFile for local paths)
-        photo = types.FSInputFile(img_path)
-        await message.answer_photo(
-            photo,
-            caption=caption,
-            parse_mode="HTML",
-            reply_markup=keyboard,
-        )
+        img_url = hero.get("img_url")
+        if img_url:
+            img_path = await compose_hero_image(img_url)
+            photo = types.FSInputFile(img_path)
+            await message.answer_photo(
+                photo,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
+        else:
+            await message.answer(
+                caption,
+                parse_mode="HTML",
+                reply_markup=keyboard,
+            )
     except Exception as e:
         logger.warning(f"⚠️ Failed to send composed image: {e}")
         await message.answer(
@@ -136,11 +151,15 @@ async def start_cmd(message: types.Message):
             parse_mode="HTML",
             reply_markup=keyboard,
         )
+    finally:
+        # clean temp file if compose_hero_image creates a temp local file
+        if img_path and os.path.exists(img_path):
+            try:
+                os.remove(img_path)
+            except Exception:
+                pass
 
 
-# -----------------------------
-# Connect Channel info
-# -----------------------------
 @router.callback_query(F.data == "connect_info")
 async def show_connect_info(cb: types.CallbackQuery):
     description = (
@@ -155,7 +174,7 @@ async def show_connect_info(cb: types.CallbackQuery):
         request_chat=types.KeyboardButtonRequestChat(
             request_id=1,
             chat_is_channel=True,
-            chat_is_created=True
+            chat_is_created=True,
         ),
     )
 

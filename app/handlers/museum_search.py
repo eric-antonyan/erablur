@@ -256,7 +256,7 @@ async def show_wars_list(cb: types.CallbackQuery):
     keyboard = []
     for w in wars:
         key = f"war:{uuid4().hex[:8]}"
-        cache.set(key, w, ex=3600)
+        await cache.set(key, w, ex=3600)
         keyboard.append([InlineKeyboardButton(text=f"⚔️ {w}", callback_data=make_callback("museum_war", key))])
 
     keyboard.append([InlineKeyboardButton(text="↩️ Վերադառնալ մենյու", callback_data="museum_menu")])

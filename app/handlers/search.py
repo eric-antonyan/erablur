@@ -194,7 +194,7 @@ async def search_hero(message: types.Message):
     cache.incr("stats:searches:total")
     cache.sadd("stats:users", user_id)
     cache.sadd("stats:heroes", hero["name"]["last"])
-    cache.set("stats:last_search_time", message.date.isoformat())
+    await cache.set("stats:last_search_time", message.date.isoformat())
 
     img_path = await compose_hero_image(hero["img_url"])
     try:
