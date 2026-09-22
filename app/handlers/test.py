@@ -10,7 +10,11 @@ async def get_emoji_id(message: types.Message):
         "recycle": "5373129839643469899",
     }
 
+<<<<<<< HEAD
     # ❤️⚔️♻️ Premium emoji test
+=======
+                               
+>>>>>>> 54c1deb (commit)
     msg = (
         f"<tg-emoji emoji-id='{EMOJI['heart']}'>❤️</tg-emoji> "
         f"<b>ՀԱՎԵՐԺ ՓԱՌՔ</b> "

@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from aiogram import Router, types
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
 
@@ -27,3 +28,41 @@ async def about_page(cb: types.CallbackQuery):
 
     await cb.message.answer(text, parse_mode="HTML", reply_markup=kb)
     await cb.answer()
+=======
+from aiogram import F, Router, types
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+
+from app.utils.custom_emoji import ce
+
+router = Router(name="about")
+
+
+@router.callback_query(F.data == "about")
+async def about_page(callback: types.CallbackQuery) -> None:
+    text = (
+        f"{ce('armenia_2')} <b>Հայոց Հերոսներ</b>\n\n"
+        "Այս բոտի նպատակն է պահպանել և հասանելի դարձնել զոհված հայ զինծառայողների "
+        "կենսագրական պատմությունները՝ հարգալից և որոնելի թվային ձևաչափով։\n\n"
+        "📚 <b>Տվյալների աղբյուր</b>\n"
+        "Հերոսների հիմնական գրառումները ներմուծված են Zinapah.am կայքից։ Յուրաքանչյուր գրառման մեջ "
+        "հնարավորության դեպքում պահպանվում է սկզբնաղբյուրի հղումը։\n\n"
+        "🤖 <b>Hay Tseghakron</b>\n"
+        "AI օգնականը աշխատում է բոտի տեղական տվյալներով և հրահանգված է չհորինել բացակայող փաստեր։ "
+        "AI պատասխանը կարող է սխալվել, ուստի կարևոր տվյալները ստուգեք սկզբնաղբյուրում։\n\n"
+        "🔐 <b>Գաղտնիություն</b>\n"
+        "Պահվում են Telegram օգտատիրոջ հիմնական պրոֆիլային տվյալները, որոնումների պատմությունը և օգտագործման վիճակագրությունը՝ "
+        "բոտի աշխատանքի համար։\n\n"
+        "👨‍💻 Մշակող՝ <b>Hay Tseghakron Team</b>\n"
+        "📨 Կապ՝ @mahaparthay, @azatamartik, @kaputopel"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🌐 Բացել Zinapah.am", url="https://www.zinapah.am")],
+        [InlineKeyboardButton(text="🤖 Hay Tseghakron", callback_data="ai_menu")],
+        [InlineKeyboardButton(text="↩️ Գլխավոր մենյու", callback_data="back_to_menu")],
+    ])
+    try:
+        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    except Exception:
+        await callback.message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+>>>>>>> 54c1deb (commit)

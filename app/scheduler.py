@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from aiogram import Bot, types
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from random import choice
@@ -111,3 +112,105 @@ def setup_daily_scheduler(bot: Bot):
     )
     scheduler.start()
     logger.info("🕒 Daily hero scheduler started — runs every day at 10:00.")
+=======
+from __future__ import annotations
+
+import random
+from zoneinfo import ZoneInfo
+
+from aiogram import Bot, types
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from apscheduler.triggers.cron import CronTrigger
+from loguru import logger
+
+from app.config.settings import settings
+from app.db.database import db
+from app.handlers.museum_search import build_caption
+from app.utils.util import compose_hero_image, remove_temp_file
+
+scheduler = AsyncIOScheduler(timezone=ZoneInfo(settings.timezone))
+
+
+async def send_daily_hero(bot: Bot) -> None:
+    heroes = db.get_all_heroes()
+    channels = db.get_all_channels()
+    if not heroes or not channels:
+        logger.info("Daily post skipped: heroes={} channels={}", len(heroes), len(channels))
+        return
+
+    hero = random.choice(heroes)
+    caption = build_caption(hero, 0, 1)
+    deep_link = f"https://t.me/{settings.bot_username}?start={hero['id']}"
+    rows = [[InlineKeyboardButton(text="🏛️ Բացել թանգարանում", url=deep_link)]]
+    source = str(hero.get("bio_link") or "")
+    # if source.startswith(("http://", "https://")):
+    #     rows.append([InlineKeyboardButton(text="🌐 Սկզբնաղբյուր", url=source)])
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+
+    image_path = None
+    sent = 0
+    removed = 0
+    try:
+        image_path = await compose_hero_image(hero.get("img_url", ""))
+        for channel in channels:
+            channel_id = int(channel.get("channel_id") or channel.get("id"))
+            try:
+                await bot.send_photo(
+                    chat_id=channel_id,
+                    photo=types.FSInputFile(image_path),
+                    caption=caption,
+                    parse_mode="HTML",
+                    reply_markup=markup,
+                )
+                sent += 1
+            except TelegramForbiddenError:
+                db.delete_channel(channel_id)
+                removed += 1
+                logger.warning("Removed inaccessible channel {}", channel_id)
+            except TelegramBadRequest as exc:
+                lowered = str(exc).lower()
+                if any(fragment in lowered for fragment in ("chat not found", "not enough rights", "bot is not a member")):
+                    db.delete_channel(channel_id)
+                    removed += 1
+                else:
+                    logger.warning("Daily post bad request for {}: {}", channel_id, exc)
+            except Exception as exc:
+                logger.warning("Daily post failed for {}: {}", channel_id, exc)
+    finally:
+        remove_temp_file(image_path)
+    logger.info("Daily hero post complete: sent={} removed={} hero={}", sent, removed, hero.get("id"))
+
+
+def setup_daily_scheduler(bot: Bot) -> None:
+    if scheduler.running:
+        scheduler.remove_all_jobs()
+    scheduler.add_job(
+        send_daily_hero,
+        trigger=CronTrigger(
+            hour=settings.schedule_hour,
+            minute=settings.schedule_minute,
+            timezone=ZoneInfo(settings.timezone),
+        ),
+        args=[bot],
+        id="daily_hero_job",
+        replace_existing=True,
+        max_instances=1,
+        coalesce=True,
+        misfire_grace_time=3600,
+    )
+    if not scheduler.running:
+        scheduler.start()
+    logger.info(
+        "Daily scheduler started at {:02d}:{:02d} {}",
+        settings.schedule_hour,
+        settings.schedule_minute,
+        settings.timezone,
+    )
+
+
+def stop_scheduler() -> None:
+    if scheduler.running:
+        scheduler.shutdown(wait=False)
+>>>>>>> 54c1deb (commit)

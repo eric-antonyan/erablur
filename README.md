@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Հայոց Հերոսներ — Telegram Mini App v4.0
 
 React + Vite frontend, NestJS API under `/api`, shared MongoDB, Vercel-ready, Telegram Mini App integration, events calendar and web admin.
@@ -332,3 +333,157 @@ MONGODB_DB_NAME=erablur
 - Media + caption + inline keyboard are sent as one Telegram message when caption length allows.
 - Failed deliveries can be retried; successful deliveries are deduplicated.
 - Admin UI now surfaces the exact backend/Telegram error instead of only showing a generic failed request.
+=======
+# Հայոց Հերոսներ — Advanced DeepSeek & Support Edition
+
+An `aiogram` Telegram museum bot with SQLite fallback plus an optional MongoDB backend, admin tools, channel publishing, inline search, image cards, a database-grounded DeepSeek assistant, and privacy-conscious voluntary support flows.
+
+## Included
+
+- Museum search by name, surname, full name, war/action, deep links, and inline search.
+- DeepSeek questions grounded only in local museum records, summaries, and quizzes.
+- Armenian-aware hero-name resolution for natural questions, inflected surnames, spelling variants, and minor typos.
+- Telegram Stars support with verified `pre_checkout_query` and `successful_payment` handling.
+- Cryptomus hosted invoices for USDT/crypto, signed API calls, manual status checking, and optional signed webhook callbacks.
+- Optional hosted bank-card URL and up to eight configurable external payment methods.
+- Anonymous-by-default public presentation: donor names/usernames are never published.
+- Minimal payment audit records in SQLite for verification, duplicate protection, support, and possible refunds.
+- `/support`, `/donate`, `/terms`, and `/paysupport` commands.
+- User payment history and admin support statistics.
+- SQLite WAL fallback, optional MongoDB via `MONGODB_URL`, backups/imports/exports, daily channel posts, and secure secret configuration.
+- Centralized Telegram custom emoji IDs with reusable `<tg-emoji>` helpers.
+
+## Important privacy meaning
+
+“Anonymous” means anonymous to the public and to other bot users. It does **not** mean invisible to Telegram, app stores, banks, blockchains, Cryptomus, or another hosted payment provider. The bot does not collect card numbers, CVV codes, wallet seed phrases, or private keys. It stores the Telegram user ID and technical transaction identifiers so payments can be verified and supported.
+
+## Requirements
+
+- Python 3.10–3.14. Python 3.13 is recommended.
+- Telegram bot token from BotFather.
+- DeepSeek API key for AI features.
+- Cryptomus merchant ID and **payment** API key for crypto invoices.
+- A public HTTPS endpoint only when automatic Cryptomus webhooks are desired. Manual payment checking works without one.
+
+## Windows setup
+
+```powershell
+py -3.13 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install --upgrade pip
+pip install -r requirements.txt
+Copy-Item .env.example .env
+notepad .env
+python main.py
+```
+
+At minimum:
+
+```env
+BOT_TOKEN=...
+OWNER_ID=...
+BOT_USERNAME=...
+DEEPSEEK_API_KEY=...
+SUPPORT_CONTACT=@your_username
+```
+
+### MongoDB
+
+The bot now switches to MongoDB automatically when `MONGODB_URL` is set. If it is empty, SQLite remains the fallback.
+
+```env
+MONGODB_URL=mongodb+srv://USERNAME:PASSWORD@YOUR_CLUSTER/erablur?retryWrites=true&w=majority
+MONGODB_DB_NAME=erablur
+MONGODB_REQUIRED=false
+MONGODB_TIMEOUT_MS=5000
+```
+
+To move the bundled SQLite data into MongoDB once:
+
+```bash
+python scripts/migrate_sqlite_to_mongo.py
+```
+
+Set `MONGODB_REQUIRED=true` only if you want startup to fail instead of falling back to SQLite when MongoDB is unavailable.
+
+For Cryptomus:
+
+```env
+CRYPTOMUS_MERCHANT_ID=...
+CRYPTOMUS_PAYMENT_KEY=...
+CRYPTOMUS_TO_CURRENCY=USDT
+CRYPTOMUS_NETWORK=tron
+```
+
+Leave `CRYPTOMUS_NETWORK` empty to allow the checkout page to offer available USDT networks according to your merchant configuration.
+
+## Automatic Cryptomus webhook
+
+Manual invoice checking is already available in the bot. For automatic confirmation, expose port `8080` through an HTTPS reverse proxy and configure the same secret in both URLs:
+
+```env
+PAYMENT_WEBHOOK_ENABLED=true
+PAYMENT_WEBHOOK_PORT=8080
+PAYMENT_WEBHOOK_PATH_SECRET=a-long-random-secret
+CRYPTOMUS_CALLBACK_URL=https://your-domain.example/cryptomus/a-long-random-secret
+```
+
+The webhook validates the Cryptomus signature before changing a payment. `CRYPTOMUS_VERIFY_IP` is disabled by default because many hosting platforms use reverse proxies; enable IP validation only when the real source IP reaches the application directly.
+
+## Bank-card method
+
+The bot must not process card data itself. Put a hosted payment link from your bank/acquirer or donation provider in:
+
+```env
+BANK_CARD_PAYMENT_URL=https://your-provider.example/payment-link
+```
+
+The user opens the provider page. The provider may require a name, bank authentication, or KYC. Telegram Stars are the most private integrated option from the bot’s perspective because the invoice does not request personal fields.
+
+## Additional methods
+
+```env
+EXTRA_PAYMENT_METHODS_JSON=[{"title":"💠 TON Wallet","url":"https://example.com/ton"},{"title":"₿ Bitcoin","url":"https://example.com/btc"}]
+```
+
+Use hosted pages or payment links. Never put private keys or seed phrases in `.env`.
+
+## Custom emojis
+
+The supplied custom emoji IDs are stored in `app/config/custom_emojis.py`. Use `ce("user")`, `ce("sword")`, `ce("armenia_1")`, etc. from `app.utils.custom_emoji` inside HTML Telegram messages.
+
+## Commands
+
+- `/start` — main menu
+- `/ai` — DeepSeek museum assistant
+- `/support` or `/donate` — voluntary support
+- `/terms` — support and privacy terms
+- `/paysupport` — payment issue contact instructions
+- `/admin` — admin panel
+- `/ai_status` — AI usage/status for admins
+
+## Telegram Stars notes
+
+The bot creates invoices using currency `XTR`, verifies pre-checkout data, and records the `telegram_payment_charge_id` after a successful payment. Keep transaction backups because charge IDs can be needed for support or refunds.
+
+## Docker
+
+```bash
+docker compose up -d --build
+docker compose logs -f
+```
+
+The `data`, `logs`, and `temp` directories are mounted so the SQLite database and operational files persist.
+
+## Security
+
+The original upload contained live Telegram tokens and previously contained a hard-coded MongoDB credential. Those secrets are not included here. Revoke/rotate old secrets before deploying and keep new values only in `.env` or a hosting secret manager.
+
+Never commit `.env`.
+
+## Telegram Mini App (React + NestJS + Vercel)
+
+A complete Mini App is included in `webapp/`. It uses a React/Vite frontend, NestJS `/api` backend, Telegram `initData` verification, the same MongoDB database as the bot, and an iOS 26-inspired liquid-glass UI.
+
+Deploy the `webapp` folder on Vercel, set the same `MONGODB_URL`, `MONGODB_DB_NAME`, and `BOT_TOKEN`, then set `WEBAPP_URL=https://your-project.vercel.app` in the Python bot environment and restart it. See `webapp/README.md` for the full setup.
+>>>>>>> 54c1deb (commit)

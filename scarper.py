@@ -5,18 +5,28 @@ import logging
 import re
 from time import sleep
 import os
+<<<<<<< HEAD
+=======
+from app.db.database import db
+import uuid
+>>>>>>> 54c1deb (commit)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
 BASE_URL = "https://www.zinapah.am/hy/fallen-heroes"
 OUTPUT_FILE = "data/heroes.json"
 
+<<<<<<< HEAD
 # Ensure file exists as an empty list
 if not os.path.exists("data"):
     os.makedirs("data")
 if not os.path.exists(OUTPUT_FILE):
     with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
         json.dump([], f, ensure_ascii=False, indent=4)
+=======
+                          
+os.makedirs("data", exist_ok=True)
+>>>>>>> 54c1deb (commit)
 
 def fetch_bio(bio_link):
     """Fetch hero bio as Telegram-style HTML."""
@@ -29,14 +39,20 @@ def fetch_bio(bio_link):
         bio_div = soup.select_one(".soldiers-inner__right .d-flex.flex-column.gap-8")
         if not bio_div:
             return ""
+<<<<<<< HEAD
         # Keep HTML intact for Telegram
+=======
+>>>>>>> 54c1deb (commit)
         bio_html = "".join(str(p) for p in bio_div.find_all("p"))
         return bio_html
     except Exception as e:
         logging.error(f"Error fetching bio: {e}")
         return ""
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> 54c1deb (commit)
 def parse_dates(date_str, bio_text=""):
     birth = ""
     dead = ""
@@ -51,6 +67,7 @@ def parse_dates(date_str, bio_text=""):
             birth = bio_match.group(1).strip()
     return {"birth": birth, "dead": dead}
 
+<<<<<<< HEAD
 def save_hero(hero):
     """Append hero to JSON file."""
     try:
@@ -62,6 +79,8 @@ def save_hero(hero):
     except Exception as e:
         logging.error(f"Error saving hero: {e}")
 
+=======
+>>>>>>> 54c1deb (commit)
 def fetch_heroes():
     page = 1
     i = 1
@@ -105,14 +124,28 @@ def fetch_heroes():
                 "bio": bio_text
             }
 
+<<<<<<< HEAD
             save_hero(hero)
             logging.info(f"{i} Saved hero: {full_name}")
             i = i + 1
 
             sleep(0.5)  # polite delay
+=======
+                                         
+            hero_id = str(uuid.uuid4())
+            db.save_hero(hero_id, hero)
+            
+            logging.info(f"{i} Saved hero: {full_name}")
+            i += 1
+            sleep(0.5)
+>>>>>>> 54c1deb (commit)
 
         page += 1
 
 if __name__ == "__main__":
     logging.info("Starting scraping heroes...")
+<<<<<<< HEAD
     fetch_heroes()
+=======
+    fetch_heroes()
+>>>>>>> 54c1deb (commit)

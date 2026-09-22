@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from app.db.redis_db import cache
 import json
 from bson import ObjectId
@@ -27,3 +28,15 @@ def set_cached_hero(name: str, hero: dict):
         cache.setex(f"hero:{name}", 3600, hero_json)
     except Exception as e:
         print(f"❌ Redis cache error for hero {name}: {e}")
+=======
+"""Compatibility helpers backed by the local file cache."""
+from app.db.file_cache import cache
+
+
+def get_cached_hero(name: str):
+    return cache.get(f"hero:{name.strip().lower()}")
+
+
+def set_cached_hero(name: str, hero: dict):
+    cache.set(f"hero:{name.strip().lower()}", hero)
+>>>>>>> 54c1deb (commit)

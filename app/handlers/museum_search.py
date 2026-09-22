@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from aiogram import Router, types, F
 from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
 from aiogram.fsm.context import FSMContext
@@ -120,10 +121,115 @@ def build_keyboard(mode, index, total, key=None):
 # ---------------------
 # 🔹 FSM STATE
 # ---------------------
+=======
+from __future__ import annotations
+
+import html
+import re
+from uuid import uuid4
+
+from aiogram import F, Router, types
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, InputMediaPhoto
+from loguru import logger
+
+from app.db.database import db
+from app.db.file_cache import cache
+from app.utils.util import compose_hero_image, remove_temp_file
+
+router = Router(name="museum")
+CB_PREFIX = "museum_page"
+MAX_CAPTION_LEN = 1024
+
+# Store short ID -> actual cache key mapping
+_pagination_cache = {}
+
+def _store_cache_key(actual_key: str) -> str:
+    """Store the actual cache key and return a short ID."""
+    short_id = uuid4().hex[:6]  # 6 chars is enough
+    _pagination_cache[short_id] = actual_key
+    return short_id
+
+def _get_cache_key(short_id: str) -> str | None:
+    """Retrieve the actual cache key from short ID."""
+    return _pagination_cache.pop(short_id, None)
+
+
+def _plain_bio(value: str) -> str:
+    text = str(value or "")
+    # The source often contains a duplicated second <p> block.
+    marker = "</p><p>"
+    if marker in text:
+        first, rest = text.split(marker, 1)
+        if first.strip() and len(rest) > len(first) * 0.8:
+            text = first
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.I)
+    text = re.sub(r"</p>", "\n\n", text, flags=re.I)
+    text = re.sub(r"<[^>]+>", "", text)
+    text = html.unescape(text)
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip() or "Տվյալներ չկան"
+
+
+def build_caption(hero: dict, index: int, total: int) -> str:
+    name = html.escape(f"{hero.get('first_name', '')} {hero.get('last_name', '')}".strip() or "Անանուն հերոս")
+    birth = html.escape(str(hero.get("birth_date") or "—"))
+    death = html.escape(str(hero.get("death_date") or "—"))
+    region = html.escape(str(hero.get("region") or "—"))
+    war = html.escape(str(hero.get("war") or "—"))
+
+    header = (
+        "🇦🇲 <b>ՀԱՎԵՐԺ ՓԱՌՔ</b>\n"
+        f"🕯️ <b>{name}</b>\n"
+        f"📅 {birth} — {death}\n"
+        f"📍 {region}\n"
+        f"⚔️ {war}\n\n"
+    )
+    footer = f"\n\n<i>{index + 1}/{max(total, 1)}</i>"
+    bio = html.escape(_plain_bio(hero.get("bio", "")))
+    wrapper_len = len("<blockquote expandable>🕯️ </blockquote>")
+    available = max(80, MAX_CAPTION_LEN - len(header) - len(footer) - wrapper_len - 8)
+    if len(bio) > available:
+        bio = bio[:available].rsplit(" ", 1)[0] + "…"
+    return f"{header}<blockquote expandable>🕯️ {bio}</blockquote>{footer}"
+
+
+def build_keyboard(
+    mode: str,
+    index: int,
+    total: int,
+    key: str | None = None,
+    hero_id: str | None = None,
+    more_url: str | None = None,
+) -> InlineKeyboardMarkup:
+    total = max(total, 1)
+    prev_i = (index - 1) % total
+    next_i = (index + 1) % total
+    
+    # Store the cache key and get a short ID
+    short_id = _store_cache_key(key) if key else "noop"
+    
+    rows = [[
+        InlineKeyboardButton(text="⬅️", callback_data=f"{CB_PREFIX}|{mode}|{short_id}|{prev_i}"),
+        InlineKeyboardButton(text=f"{index + 1}/{total}", callback_data="noop"),
+        InlineKeyboardButton(text="➡️", callback_data=f"{CB_PREFIX}|{mode}|{short_id}|{next_i}"),
+    ]]
+    if hero_id:
+        rows.append([InlineKeyboardButton(text="🤖 Hay Tseghakron ամփոփում", callback_data=f"ai_explain|{hero_id}")])
+    if more_url and str(more_url).startswith(("http://", "https://")):
+        rows.append([InlineKeyboardButton(text="🌐 Սկզբնաղբյուր", url=str(more_url))])
+    rows.append([InlineKeyboardButton(text="↩️ Թանգարան", callback_data="museum_menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+>>>>>>> 54c1deb (commit)
 class MuseumState(StatesGroup):
     searching = State()
 
 
+<<<<<<< HEAD
 # ---------------------
 # 🔹 MUSEUM MENU
 # ---------------------
@@ -343,3 +449,193 @@ async def paginate_museum(cb: types.CallbackQuery):
         await cb.message.edit_caption(caption=caption, parse_mode="HTML", reply_markup=kb)
 
     await cb.answer()
+=======
+@router.callback_query(F.data.in_({"museum", "museum_menu"}))
+async def museum_menu(callback: types.CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    text = (
+        "🇦🇲 <b>Հայոց Հերոսներ</b>\n\n"
+        "🕊️ Սա մեր հերոսների հիշատակի թվային թանգարանն է։\n\n"
+        "Ընտրեք բաժինը։"
+    )
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔎 Որոնել անունով", callback_data="museum_search")],
+        [
+            InlineKeyboardButton(text="🏅 Բոլոր հերոսները", callback_data="museum_all"),
+            InlineKeyboardButton(text="⚔️ Ըստ պատերազմի", callback_data="museum_wars"),
+        ],
+        [InlineKeyboardButton(text="🤖 Hay Tseghakron", callback_data="ai_menu")],
+        [InlineKeyboardButton(text="↩️ Գլխավոր մենյու", callback_data="back_to_menu")],
+    ])
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=keyboard)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "museum_search")
+async def museum_search_start(callback: types.CallbackQuery, state: FSMContext) -> None:
+    await callback.message.edit_text(
+        "🔎 <b>Գրեք հերոսի անունը կամ ազգանունը</b>\n\n"
+        "Օրինակ՝ <b>Ռոբերտ</b> կամ <b>Ռոբերտ Աբաջյան</b>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Չեղարկել", callback_data="museum_menu")]
+        ]),
+    )
+    await state.set_state(MuseumState.searching)
+    await callback.answer()
+
+
+@router.message(MuseumState.searching)
+async def museum_searching(message: types.Message, state: FSMContext) -> None:
+    query = (message.text or "").strip()
+    if not query:
+        await message.answer("Մուտքագրեք անուն կամ ազգանուն։")
+        return
+    if len(query) > 100:
+        await message.answer("Որոնման տեքստը չափազանց երկար է։")
+        return
+
+    await message.bot.send_chat_action(message.chat.id, "typing")
+    heroes = db.get_heroes_by_name(query, limit=50)
+    if not heroes:
+        await state.clear()
+        await message.answer(
+            f"❌ «{html.escape(query)}» հարցմամբ հերոս չի գտնվել։\n\n"
+            "Փորձեք անուն, ազգանուն կամ լրիվ անուն։",
+            parse_mode="HTML",
+        )
+        return
+
+    await state.clear()
+    cache_key = f"search:{uuid4().hex[:10]}"
+    cache.set(cache_key, [hero["id"] for hero in heroes], ttl=3600)
+    hero = heroes[0]
+    db.add_search_history(str(message.from_user.id), query, hero["id"], f"{hero['first_name']} {hero['last_name']}")
+    db.increment_search_count(str(message.from_user.id), query)
+    cache.set("stats:last_search_time", __import__("datetime").datetime.now().isoformat(timespec="seconds"), ttl=86400)
+    await _send_hero(message, hero, 0, len(heroes), "search", cache_key)
+
+
+@router.callback_query(F.data == "museum_all")
+async def show_all_heroes(callback: types.CallbackQuery) -> None:
+    heroes = db.get_all_heroes()
+    if not heroes:
+        await callback.answer("Թանգարանում դեռ գրառումներ չկան։", show_alert=True)
+        return
+    cache_key = f"all:{uuid4().hex[:10]}"
+    cache.set(cache_key, [hero["id"] for hero in heroes], ttl=3600)
+    await _send_hero(callback.message, heroes[0], 0, len(heroes), "all", cache_key)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "museum_wars")
+async def show_wars_list(callback: types.CallbackQuery) -> None:
+    wars = db.get_all_wars()
+    if not wars:
+        await callback.answer("Պատերազմների ցանկը դատարկ է։", show_alert=True)
+        return
+    rows = []
+    for war in wars[:90]:
+        # Use shorter key for war selection
+        short_key = f"w_{uuid4().hex[:6]}"
+        cache.set(short_key, war, ttl=3600)
+        rows.append([InlineKeyboardButton(text=f"⚔️ {war}"[:60], callback_data=f"museum_war|{short_key}")])
+    rows.append([InlineKeyboardButton(text="↩️ Թանգարան", callback_data="museum_menu")])
+    await callback.message.answer(
+        "⚔️ <b>Ընտրեք պատերազմը կամ գործողությունը</b>",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith("museum_war|"))
+async def filter_by_war(callback: types.CallbackQuery) -> None:
+    cache_key = callback.data.split("|", 1)[1]
+    war = cache.get(cache_key)
+    if not war:
+        await callback.answer("Հղման ժամկետը սպառվել է։", show_alert=True)
+        return
+    heroes = db.get_heroes_by_war(str(war))
+    if not heroes:
+        await callback.answer("Այս բաժնում հերոսներ չկան։", show_alert=True)
+        return
+    list_key = f"warlist:{uuid4().hex[:10]}"
+    cache.set(list_key, [hero["id"] for hero in heroes], ttl=3600)
+    await _send_hero(callback.message, heroes[0], 0, len(heroes), "war", list_key)
+    await callback.answer()
+
+
+@router.callback_query(F.data.startswith(CB_PREFIX + "|"))
+async def paginate_museum(callback: types.CallbackQuery) -> None:
+    try:
+        _, mode, short_id, raw_index = callback.data.split("|", 3)
+        index = int(raw_index)
+    except (ValueError, IndexError):
+        await callback.answer("Սխալ տվյալ։", show_alert=True)
+        return
+
+    # Get the actual cache key from the short ID
+    key = _get_cache_key(short_id)
+    if not key:
+        await callback.answer("Տվյալների ժամկետը սպառվել է։", show_alert=True)
+        return
+
+    hero_ids = cache.get(key)
+    if not isinstance(hero_ids, list) or not hero_ids:
+        await callback.answer("Տվյալների ժամկետը սպառվել է։", show_alert=True)
+        return
+    index %= len(hero_ids)
+    hero = db.get_hero(str(hero_ids[index]))
+    if not hero:
+        await callback.answer("Հերոսը չի գտնվել։", show_alert=True)
+        return
+
+    caption = build_caption(hero, index, len(hero_ids))
+    keyboard = build_keyboard(mode, index, len(hero_ids), key, hero["id"], hero.get("bio_link"))
+    image_path = None
+    try:
+        image_path = await compose_hero_image(hero.get("img_url", ""))
+        media = InputMediaPhoto(media=types.FSInputFile(image_path), caption=caption, parse_mode="HTML")
+        await callback.message.edit_media(media=media, reply_markup=keyboard)
+    except Exception as exc:
+        logger.warning("Hero pagination image error: {}", exc)
+        try:
+            await callback.message.edit_caption(caption=caption, parse_mode="HTML", reply_markup=keyboard)
+        except Exception:
+            await callback.message.answer(caption, parse_mode="HTML", reply_markup=keyboard)
+    finally:
+        remove_temp_file(image_path)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "noop")
+async def noop(callback: types.CallbackQuery) -> None:
+    await callback.answer()
+
+
+async def _send_hero(
+    message: types.Message,
+    hero: dict,
+    index: int,
+    total: int,
+    mode: str,
+    cache_key: str,
+) -> None:
+    caption = build_caption(hero, index, total)
+    keyboard = build_keyboard(mode, index, total, cache_key, hero.get("id"), hero.get("bio_link"))
+    image_path = None
+    try:
+        image_path = await compose_hero_image(hero.get("img_url", ""))
+        await message.answer_photo(
+            types.FSInputFile(image_path),
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=keyboard,
+        )
+    except Exception as exc:
+        logger.warning("Hero image send error: {}", exc)
+        await message.answer(caption, parse_mode="HTML", reply_markup=keyboard)
+    finally:
+        remove_temp_file(image_path)
+>>>>>>> 54c1deb (commit)

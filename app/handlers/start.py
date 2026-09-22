@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 from aiogram import Router, types, F
 from aiogram.filters import CommandStart
 from aiogram.types import (
@@ -186,3 +187,170 @@ async def show_connect_info(cb: types.CallbackQuery):
 
     await cb.message.answer(description, reply_markup=reply_kb)
     await cb.answer()
+=======
+from __future__ import annotations
+
+import re
+from urllib.parse import unquote
+
+from aiogram import F, Router, types
+from aiogram.filters import CommandObject, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, KeyboardButton, ReplyKeyboardMarkup, WebAppInfo
+
+from app.config.settings import settings
+from app.db.database import db
+from app.db.file_cache import cache
+from app.handlers.museum_search import _send_hero
+from app.utils.custom_emoji import ce
+
+router = Router(name="start")
+
+
+def main_menu_keyboard() -> InlineKeyboardMarkup:
+    rows = []
+    if settings.webapp_url.startswith("https://"):
+        rows.append([InlineKeyboardButton(text="📱 Բացել հավելվածը", web_app=WebAppInfo(url=settings.webapp_url))])
+    rows.extend([
+        [
+            InlineKeyboardButton(text="🏛️ Թանգարան", callback_data="museum"),
+            InlineKeyboardButton(text="🔎 Որոնել հերոս", switch_inline_query_current_chat=""),
+        ],
+        [
+            InlineKeyboardButton(text="🤖 Hay Tseghakron", callback_data="ai_menu"),
+            InlineKeyboardButton(text="👤 Իմ պրոֆիլը", callback_data="profile"),
+        ],
+    ])
+    if settings.support_enabled:
+        rows.append([
+            InlineKeyboardButton(text="❤️ Աջակցել", callback_data="support_home"),
+            InlineKeyboardButton(text="📜 Մեր մասին", callback_data="about"),
+        ])
+    else:
+        rows.append([InlineKeyboardButton(text="📜 Մեր մասին", callback_data="about")])
+    rows.append([InlineKeyboardButton(text="📡 Իմ ալիքները", callback_data="manage_channels")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+async def show_main_menu(message: types.Message, *, edit: bool = False) -> None:
+    text = (
+        f"{ce('sword')} <b>Բարի գալուստ «Հայոց Հերոսներ»</b>\n\n"
+        "Սա հայ հերոսների հիշատակը պահպանող թվային թանգարանն է, որտեղ կարող եք "
+        "բացահայտել նրանց կյանքը, սխրանքներն ու պատմությունները։\n\n"
+        "🔎 Որոնեք հերոսին անունով\n"
+        "📖 Կարդացեք կենսագրություններն ու կարևոր փաստերը\n"
+        "🤖 Հարցեր տվեք Hay Tseghakron օգնականին\n"
+        + ("❤️ Աջակցեք նախագծի պահպանմանն ու զարգացմանը\n\n" if settings.support_enabled else "\n")
+        + f"{ce('armenia_1')} <b>Հիշում ենք։ Պատմում ենք։ Հավերժացնում ենք։</b>"
+    )
+    if edit:
+        try:
+            await message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_keyboard())
+            return
+        except Exception:
+            pass
+    await message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard())
+
+
+async def open_manage_panel_logic(event: types.Message | types.CallbackQuery) -> None:
+    user_id = str(event.from_user.id)
+    channels = db.get_user_channels(user_id)
+    rows: list[list[InlineKeyboardButton]] = []
+    if channels:
+        text = "📡 <b>Ձեր միացված ալիքները</b>\n\nԸնտրեք ալիքը՝ կառավարելու համար։"
+        for channel in channels:
+            channel_id = channel.get("channel_id") or channel.get("id")
+            title = str(channel.get("title") or "Անանուն ալիք")
+            rows.append([InlineKeyboardButton(text=f"📢 {title}"[:60], callback_data=f"channel_manage|show|{channel_id}")])
+    else:
+        text = (
+            "📡 <b>Դուք դեռ ալիք չեք միացրել</b>\n\n"
+            "Միացրեք ալիքը, որպեսզի բոտը կարողանա ամենօրյա հիշատակի գրառումներ հրապարակել։"
+        )
+    rows.extend([
+        [InlineKeyboardButton(text="➕ Միացնել նոր ալիք", callback_data="connect_info")],
+        [InlineKeyboardButton(text="↩️ Գլխավոր մենյու", callback_data="back_to_menu")],
+    ])
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    if isinstance(event, types.CallbackQuery):
+        try:
+            await event.message.edit_text(text, parse_mode="HTML", reply_markup=markup)
+        except Exception:
+            await event.message.answer(text, parse_mode="HTML", reply_markup=markup)
+        await event.answer()
+    else:
+        await event.answer(text, parse_mode="HTML", reply_markup=markup)
+
+
+@router.message(CommandStart())
+async def start_cmd(message: types.Message, command: CommandObject | None = None, type: str = "answer") -> None:
+    user = message.from_user
+    db.save_user(
+        str(user.id),
+        user.username or "",
+        user.first_name or "",
+        user.last_name or "",
+    )
+    param = command.args if command and hasattr(command, "args") else None
+    if param == "connect":
+        await open_manage_panel_logic(message)
+        return
+    if not param:
+        await show_main_menu(message, edit=type == "edit")
+        return
+
+    decoded = unquote(param)
+    match = re.search(r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{24}", decoded)
+    if not match:
+        await show_main_menu(message)
+        return
+
+    hero_id = match.group(0)
+    hero = db.get_hero(hero_id)
+    if not hero:
+        await message.answer("❌ Հերոսը չի գտնվել։", reply_markup=main_menu_keyboard())
+        return
+    heroes = db.get_all_heroes()
+    ids = [str(item["id"]) for item in heroes]
+    try:
+        index = ids.index(str(hero_id))
+    except ValueError:
+        ids = [str(hero_id)]
+        index = 0
+    cache_key = f"hero_start:{hero_id}"
+    cache.set(cache_key, ids, ttl=3600)
+    await _send_hero(message, hero, index, len(ids), "all", cache_key)
+
+
+@router.callback_query(F.data == "back_to_menu")
+async def back_to_menu(callback: types.CallbackQuery, state: FSMContext) -> None:
+    await state.clear()
+    await show_main_menu(callback.message, edit=True)
+    await callback.answer()
+
+
+@router.callback_query(F.data == "manage_channels")
+async def handle_manage_callback(callback: types.CallbackQuery) -> None:
+    await open_manage_panel_logic(callback)
+
+
+@router.callback_query(F.data == "connect_info")
+async def show_connect_info(callback: types.CallbackQuery) -> None:
+    description = (
+        "📢 Բոտը կարող է ամեն օր հիշատակի գրառում հրապարակել ձեր ալիքում։\n\n"
+        "1. Նախ ավելացրեք բոտը ալիքում որպես ադմինիստրատոր։\n"
+        "2. Սեղմեք ներքևի կոճակը և ընտրեք ալիքը։"
+    )
+    connect_button = KeyboardButton(
+        text="📡 Ընտրել ալիք",
+        request_chat=types.KeyboardButtonRequestChat(
+            request_id=1,
+            chat_is_channel=True,
+        ),
+    )
+    await callback.message.answer(
+        description,
+        reply_markup=ReplyKeyboardMarkup(keyboard=[[connect_button]], resize_keyboard=True, one_time_keyboard=True),
+    )
+    await callback.answer()
+>>>>>>> 54c1deb (commit)
